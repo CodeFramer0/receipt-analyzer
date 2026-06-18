@@ -1,0 +1,28 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reports:/app/reports
+      - ./uploads:/app/uploads
+      - ./references:/app/references:ro
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+
+  worker:
+    build: .
+    command: celery -A app.infrastructure.celery.app worker --loglevel=info --concurrency=2
+    volumes:
+      - ./reports:/app/reports
+      - ./uploads:/app/uploads
+      - ./references:/app/references:ro
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+
+  redis:
+    image: redis:7-alpine
