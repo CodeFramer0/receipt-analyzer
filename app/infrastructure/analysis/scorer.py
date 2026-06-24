@@ -11,15 +11,17 @@ WEIGHTS: dict[AnomalyType, float] = {
     AnomalyType.STRUCTURE_ANOMALY: 1.5,
 }
 
+CRITICAL_FIELDS = {"image_bytes": 3.0}
+
 
 class ForgeryScorer:
     def score(
         self, filename: str, indicators: list[ForgeryIndicator]
     ) -> AnomalyScore:
-        total = sum(
-            ind.severity * WEIGHTS.get(ind.anomaly_type, 1.0)
-            for ind in indicators
-        )
+        total = 0.0
+        for ind in indicators:
+            weight = CRITICAL_FIELDS.get(ind.target_field, WEIGHTS.get(ind.anomaly_type, 1.0))
+            total += ind.severity * weight
         return AnomalyScore(
             receipt_filename=filename,
             total_score=round(total, 2),

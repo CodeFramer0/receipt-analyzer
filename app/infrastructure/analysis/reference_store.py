@@ -14,7 +14,6 @@ from app.domain.value_objects import ForgeryIndicator, PdfMetadata
 class ReferenceFingerprint:
     filename: str
     image_hashes: tuple[str, ...]
-    text_hash: str
     content_stream_hash: str
 
 
@@ -49,20 +48,10 @@ class FileReferenceStore(ReferenceStore):
         metadata_extractor=None,
     ) -> None:
         self._reference_dir = reference_dir
-        self._text_extractor = text_extractor
-        self._metadata_extractor = metadata_extractor
         self._fingerprints: list[ReferenceFingerprint] | None = None
 
     def get_reference_metadata(self) -> list[PdfMetadata]:
-        if not self._metadata_extractor:
-            return []
-        result = []
-        if not self._reference_dir.exists():
-            return result
-        for pdf_path in self._reference_dir.glob("*.pdf"):
-            meta = self._metadata_extractor.extract_metadata(pdf_path)
-            result.append(meta)
-        return result
+        return []
 
     def _load_fingerprints(self) -> list[ReferenceFingerprint]:
         if self._fingerprints is not None:
@@ -73,20 +62,11 @@ class FileReferenceStore(ReferenceStore):
             return self._fingerprints
 
         for pdf_path in self._reference_dir.glob("*.pdf"):
-            image_hashes = _extract_image_hashes(pdf_path)
-            content_hash = _extract_content_hash(pdf_path)
-
-            text_hash = ""
-            if self._text_extractor:
-                receipt = self._text_extractor.extract(pdf_path)
-                text_hash = hashlib.sha256(receipt.text_content.encode()).hexdigest()
-
             self._fingerprints.append(
                 ReferenceFingerprint(
                     filename=pdf_path.name,
-                    image_hashes=image_hashes,
-                    text_hash=text_hash,
-                    content_stream_hash=content_hash,
+                    image_hashes=_extract_image_hashes(pdf_path),
+                    content_stream_hash=_extract_content_hash(pdf_path),
                 )
             )
 
@@ -101,7 +81,6 @@ class FileReferenceStore(ReferenceStore):
 
         uploaded_image_hashes = _extract_image_hashes(file_path)
         uploaded_content_hash = _extract_content_hash(file_path)
-        uploaded_text_hash = hashlib.sha256(receipt.text_content.encode()).hexdigest()
 
         for ref in fingerprints:
             if not ref.image_hashes or not uploaded_image_hashes:
@@ -109,9 +88,8 @@ class FileReferenceStore(ReferenceStore):
 
             images_match = ref.image_hashes == uploaded_image_hashes
             content_match = ref.content_stream_hash == uploaded_content_hash
-            text_match = ref.text_hash == uploaded_text_hash
 
-            if images_match and content_match and text_match:
+            if images_match and content_match:
                 continue
 
             if images_match and not content_match:
@@ -119,24 +97,11 @@ class FileReferenceStore(ReferenceStore):
                     ForgeryIndicator(
                         anomaly_type=AnomalyType.STRUCTURE_ANOMALY,
                         description=(
-                            f"Image bytes are identical to reference '{ref.filename}' "
+                            f"Image raw bytes are identical to reference '{ref.filename}' "
                             f"but content stream differs - possible modified copy"
                         ),
-                        severity=0.95,
+                        severity=1.0,
                         target_field="image_bytes",
-                    )
-                )
-
-            if images_match and not text_match:
-                indicators.append(
-                    ForgeryIndicator(
-                        anomaly_type=AnomalyType.STRUCTURE_ANOMALY,
-                        description=(
-                            f"Image bytes match reference '{ref.filename}' "
-                            f"but extracted text differs - transaction data may be fabricated"
-                        ),
-                        severity=0.95,
-                        target_field="text_content",
                     )
                 )
 
