@@ -6,6 +6,7 @@ from app.infrastructure.analysis.receipt_analyzer import ReceiptAnalyzerService
 from app.infrastructure.analysis.reference_store import FileReferenceStore
 from app.infrastructure.analysis.scorer import ForgeryScorer
 from app.infrastructure.celery.app import celery_app
+from app.infrastructure.pdf.byte_analyzer import PdfByteAnalyzer
 from app.infrastructure.pdf.metadata_extractor import PikePdfMetadataExtractor
 from app.infrastructure.pdf.structure_analyzer import StructureAnalyzer
 from app.infrastructure.pdf.text_extractor import PdfPlumberTextExtractor
@@ -26,6 +27,7 @@ def _build_analyzer() -> ReceiptAnalyzerService:
             text_extractor=text_extractor,
             metadata_extractor=metadata_extractor,
         ),
+        byte_analyzer=PdfByteAnalyzer(),
     )
 
 

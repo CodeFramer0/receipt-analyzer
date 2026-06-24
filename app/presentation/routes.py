@@ -72,18 +72,20 @@ def _report_to_dto(report: AnalysisReport) -> ReportDetailDto:
 
 
 async def _validate_pdf(file: UploadFile) -> bytes:
-    content = await file.read()
+    header = await file.read(len(PDF_MAGIC_BYTES))
+    if not header.startswith(PDF_MAGIC_BYTES):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"File {file.filename} is not a valid PDF",
+        )
+
+    rest = await file.read(MAX_FILE_SIZE - len(header) + 1)
+    content = header + rest
 
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File {file.filename} exceeds 10MB limit",
-        )
-
-    if not content.startswith(PDF_MAGIC_BYTES):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"File {file.filename} is not a valid PDF",
         )
 
     return content

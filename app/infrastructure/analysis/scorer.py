@@ -9,6 +9,9 @@ WEIGHTS: dict[AnomalyType, float] = {
     AnomalyType.TEXT_LAYER_ANOMALY: 1.0,
     AnomalyType.DATE_ANOMALY: 2.0,
     AnomalyType.STRUCTURE_ANOMALY: 1.5,
+    AnomalyType.JAVASCRIPT_DETECTED: 5.0,
+    AnomalyType.CONTENT_STREAM_ANOMALY: 2.5,
+    AnomalyType.STREAM_ANOMALY: 1.5,
 }
 
 CRITICAL_FIELDS = {"image_bytes": 3.0}

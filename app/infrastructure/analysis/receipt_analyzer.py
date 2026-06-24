@@ -6,6 +6,7 @@ from app.domain.interfaces import PdfMetadataExtractor, PdfTextExtractor, Struct
 from app.infrastructure.analysis.reference_store import FileReferenceStore
 from app.infrastructure.analysis.scorer import ForgeryScorer
 from app.infrastructure.pdf.bank_profiles import detect_bank
+from app.infrastructure.pdf.byte_analyzer import PdfByteAnalyzer
 from app.infrastructure.pdf.object_extractor import extract_object_info
 
 FAKE_THRESHOLD = 2.0
@@ -20,12 +21,14 @@ class ReceiptAnalyzerService:
         structure_analyzer: StructureAnalyzerPort,
         scorer: ForgeryScorer,
         reference_store: FileReferenceStore,
+        byte_analyzer: PdfByteAnalyzer | None = None,
     ) -> None:
         self._text_extractor = text_extractor
         self._metadata_extractor = metadata_extractor
         self._structure_analyzer = structure_analyzer
         self._scorer = scorer
         self._reference_store = reference_store
+        self._byte_analyzer = byte_analyzer or PdfByteAnalyzer()
 
     def analyze(self, report_id: str, file_paths: list[Path]) -> AnalysisReport:
         results: list[FileResult] = []
@@ -51,13 +54,19 @@ class ReceiptAnalyzerService:
 
         indicators = self._structure_analyzer.analyze(receipt, rev_count, obj_info)
 
+        try:
+            byte_indicators = self._byte_analyzer.analyze(file_path)
+            indicators.extend(byte_indicators)
+        except Exception:
+            pass
+
         ref_indicators = self._reference_store.compare_with_references(receipt, file_path)
         indicators.extend(ref_indicators)
 
         score = self._scorer.score(receipt.filename, indicators)
         verdict = self._determine_verdict(score.total_score, len(indicators))
 
-        profile = detect_bank(receipt.text_content, receipt.metadata.producer)
+        profile = detect_bank(receipt.text_content)
         bank_name = profile.name if profile else "unknown"
 
         return FileResult(

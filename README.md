@@ -1,6 +1,6 @@
 # Receipt Fraud Analyzer
 
-Python-сервис для анализа PDF-чеков и выявления признаков подделки. Каждый PDF анализируется независимо. Допускается сравнение с набором эталонных оригинальных чеков.
+Python-сервис для анализа PDF-чеков и выявления признаков подделки. Каждый PDF анализируется независимо **на байтовом уровне**: парсинг content streams, анализ объектной структуры, детекция инструментов по бинарным сигнатурам. Метаданные (Producer, Creator, даты, Keywords) и размер файла **не используются** для определения вердикта — они легко подделываются.
 
 ## Запуск
 
@@ -13,7 +13,7 @@ docker-compose up --build
 
 ## Эталонные чеки
 
-Для повышения точности анализа в папку `references/` можно добавить оригинальные PDF-чеки. Сервис сравнивает проверяемые файлы с эталонами по producer, размеру страницы и версии PDF.
+В папку `references/` можно добавить оригинальные PDF-чеки. Сервис сравнивает проверяемые файлы с эталонами побайтово: SHA256-хэши raw bytes изображений, content stream и бинарных данных шрифтов.
 
 ## Как отправить файл на проверку
 
@@ -47,34 +47,25 @@ curl http://localhost:8000/receipt/{analysis_id}
   "files": [
     {
       "filename": "receipt_1.pdf",
-      "verdict": "suspicious",
+      "verdict": "fake",
       "detected_bank": "tinkoff",
-      "score": 1.2,
+      "score": 3.5,
       "reasons": [
         {
-          "anomaly_type": "structure_anomaly",
-          "description": "Keywords contain MD5-style hash instead of expected UUID format",
-          "severity": 0.8
+          "anomaly_type": "tool_mismatch",
+          "description": "HTML-to-PDF generator 'CPDF (dompdf)' detected in binary content",
+          "severity": 0.95
         }
       ],
       "technical_info": {
-        "producer": "OpenPDF 1.3.30.jaspersoft.2",
-        "creator": "JasperReports Library version 6.20.3",
+        "producer": "...",
+        "creator": "...",
         "pdf_version": "1.5",
         "page_height": 411.0,
         "page_width": 270.0,
         "is_encrypted": false,
-        "revision_count": 1,
-        "keywords": "28.05.2026 21:38:32 | bdf4585b... | 991"
+        "revision_count": 1
       }
-    },
-    {
-      "filename": "receipt_2.pdf",
-      "verdict": "original",
-      "detected_bank": "tinkoff",
-      "score": 0.0,
-      "reasons": [],
-      "technical_info": { "..." }
     }
   ],
   "created_at": "2026-06-18T12:00:00Z"
@@ -82,64 +73,80 @@ curl http://localhost:8000/receipt/{analysis_id}
 ```
 
 Возможные вердикты:
-- `original` - аномалий не обнаружено
-- `suspicious` - обнаружены подозрительные признаки (score 1.0 - 3.0)
-- `fake` - обнаружены явные признаки подделки (score >= 3.0)
-- `unknown` - невозможно извлечь данные из PDF
+- `original` — аномалий не обнаружено
+- `suspicious` — обнаружены подозрительные признаки (score 0.8–2.0)
+- `fake` — обнаружены явные признаки подделки (score >= 2.0)
+- `unknown` — невозможно извлечь данные из PDF
 
 ## Какие проверки реализованы
 
-Сервис автоматически определяет банк-эмитент чека (Тинькофф, Сбер) и применяет соответствующий набор проверок.
+Все проверки работают на уровне байт и PDF-объектов, без опоры на метаданные.
 
-### Общие проверки (все банки)
+### Байтовый анализ
 
 | Проверка | Что анализируется |
 |----------|------------------|
-| Имя файла | Наличие ключевого слова "receipt" |
-| Producer | Обнаружение HTML-to-PDF генераторов (dompdf, mPDF, wkhtmltopdf) |
-| Producer/Creator | Соответствие ожидаемым значениям для банка |
-| PDF version | Соответствие ожидаемой версии |
-| Даты | Несоответствие даты создания и модификации |
-| Шрифты | Смешение embedded/non-embedded, большой разброс размеров |
-| Ревизии | Множественные %%EOF маркеры (признак редактирования) |
-| Текстовый слой | Пустой текст при наличии страниц |
+| Generator detection | Поиск бинарных сигнатур HTML-to-PDF генераторов (dompdf/CPDF, wkhtmltopdf, mPDF, WeasyPrint) и PDF-редакторов (Nitro, PDFelement) в raw bytes файла |
+| JavaScript | Наличие /JS и /JavaScript объектов |
+| Actions | OpenAction, Additional Actions (AA) в каталоге и на страницах |
+| Incremental updates | Анализ объектов после первого %%EOF: модификация Page-объектов, текстовые операторы (Tj/TJ) в поздних ревизиях |
+| Content stream | Белый текст (1 1 1 rg + Tj), невидимый текст (Tr 3), множественные Form XObject overlays, clipping masks |
+| Stream filters | Нетипичные фильтры (JBIG2Decode, Crypt, LZWDecode), сложные цепочки |
+| Stream length | Расхождение между объявленным /Length и фактическим размером stream |
+| Trailing data | Данные после финального %%EOF маркера |
+| Embedded files | Встроенные файлы внутри PDF |
+| Annotations | Аннотации на страницах |
+| Forbidden objects | AcroForm (интерактивные формы), Signature/Widget объекты |
 
-### Тинькофф
+### Объектно-структурный анализ
 
-| Проверка | Критерий |
-|----------|---------|
-| Email | Наличие fb@tbank.ru в тексте чека |
-| Keywords | Формат идентификатора (UUID vs MD5) |
-| Keywords | Наличие метаданных квитанции |
+| Проверка | Что анализируется |
+|----------|------------------|
+| Page dimensions | Размер страницы из MediaBox (не метаданные, а свойство page object) |
+| Object count | Количество PDF-объектов |
+| Image count | Количество image XObjects |
+| Image raw bytes | Суммарный размер raw bytes изображений (5% tolerance) |
+| Font count | Количество font-объектов |
+| Font raw bytes | Суммарный размер raw bytes шрифтов (диапазон) |
+| Font embedding | Смешение embedded/non-embedded шрифтов |
+| Font size variance | Аномальный разброс размеров шрифтов |
+| Revisions | Множественные %%EOF маркеры |
+| Text layer | Пустой текст при наличии страниц |
 
-### Сбер
-
-| Проверка | Критерий |
-|----------|---------|
-| Размер страницы | Соответствие эталону (300x699 или 300x795) |
-| Количество объектов | Соответствие эталону (16 или 17) |
-| Количество изображений | Соответствие эталону (3 или 4) |
-| Размер шрифтов (raw bytes) | Попадание в допустимый диапазон |
-| Размер файла | Попадание в допустимый диапазон |
-
-### Сравнение с эталонами
+### Сравнение с эталонами (references/)
 
 | Проверка | Что сравнивается |
 |----------|-----------------|
-| Producer | Совпадение с producer эталонных чеков |
-| Размер страницы | Совпадение с эталонными значениями |
-| PDF-версия | Совпадение с эталонными версиями |
+| Image bytes | SHA256 raw bytes каждого изображения |
+| Content stream | SHA256 decoded content stream |
+| Font bytes | SHA256 бинарных данных шрифтов (FontFile2/FontFile/FontFile3) |
+
+Аномалии: идентичные изображения но разный content stream (модифицированная копия), идентичные изображения но другие шрифты (подмена шрифтов).
+
+### Банк-специфичные проверки
+
+Банк определяется по тексту чека (не по метаданным). Для Сбера — проверка объектной структуры по эталонным спецификациям (object/image/font counts, raw bytes). Для Тинькофф — проверка email fb@tbank.ru в тексте.
 
 ## Как формируется итоговый вывод
 
-1. Сервис определяет банк-эмитент по тексту чека и метаданным producer
-2. Каждая проверка генерирует индикатор с типом аномалии и severity (0.0 - 1.0)
-3. Итоговый score = сумма(severity * weight), где weight зависит от типа аномалии
-4. Вердикт определяется по score:
-   - `original` - score = 0, аномалий нет
-   - `suspicious` - score от 1.0 до 3.0
-   - `fake` - score >= 3.0
-   - `unknown` - ошибка при извлечении данных из PDF
+1. Байтовый анализ: парсинг raw bytes, content streams, поиск сигнатур генераторов, проверка stream integrity
+2. Объектно-структурный анализ: counts, raw byte sizes, font embedding, revisions
+3. Сравнение с эталонами (если есть): побайтовое сравнение image/font/content stream хэшей
+4. Каждая проверка генерирует индикатор с типом аномалии и severity (0.0–1.0)
+5. Итоговый score = сумма(severity * weight):
+
+| Тип аномалии | Вес |
+|---|---|
+| javascript_detected | 5.0 |
+| revision_anomaly | 3.0 |
+| tool_mismatch | 2.5 |
+| content_stream_anomaly | 2.5 |
+| structure_anomaly | 1.5 |
+| font_inconsistency | 1.5 |
+| stream_anomaly | 1.5 |
+| text_layer_anomaly | 1.0 |
+
+6. Вердикт по score: `original` (< 0.8) → `suspicious` (0.8–2.0) → `fake` (>= 2.0)
 
 ## Стек
 

@@ -23,3 +23,6 @@ class AnomalyType(StrEnum):
     TEXT_LAYER_ANOMALY = "text_layer_anomaly"
     DATE_ANOMALY = "date_anomaly"
     STRUCTURE_ANOMALY = "structure_anomaly"
+    JAVASCRIPT_DETECTED = "javascript_detected"
+    CONTENT_STREAM_ANOMALY = "content_stream_anomaly"
+    STREAM_ANOMALY = "stream_anomaly"
