@@ -18,6 +18,9 @@ class FileResult:
     filename: str
     verdict: ReceiptVerdict
     score: AnomalyScore | None = None
+    metadata: PdfMetadata | None = None
+    revision_count: int = 0
+    detected_bank: str = "unknown"
 
 
 @dataclass

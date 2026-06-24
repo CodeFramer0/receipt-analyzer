@@ -20,7 +20,9 @@ class PdfMetadataExtractor(ABC):
 
 class StructureAnalyzerPort(ABC):
     @abstractmethod
-    def analyze(self, receipt: Receipt, revision_count: int) -> list[ForgeryIndicator]: ...
+    def analyze(
+        self, receipt: Receipt, revision_count: int, object_info: object | None = None
+    ) -> list[ForgeryIndicator]: ...
 
 
 class ReportRepository(ABC):

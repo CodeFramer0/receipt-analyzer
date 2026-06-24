@@ -5,7 +5,7 @@ from pathlib import Path
 from app.domain.entities import AnalysisReport, FileResult
 from app.domain.enums import AnalysisStatus, AnomalyType, ReceiptVerdict
 from app.domain.interfaces import ReportRepository
-from app.domain.value_objects import AnomalyScore, ForgeryIndicator
+from app.domain.value_objects import AnomalyScore, ForgeryIndicator, PdfMetadata
 
 
 class JsonReportRepository(ReportRepository):
@@ -38,6 +38,7 @@ class JsonReportRepository(ReportRepository):
             result: dict = {
                 "filename": fr.filename,
                 "verdict": fr.verdict.value,
+                "detected_bank": fr.detected_bank,
                 "score": fr.score.total_score if fr.score else 0,
                 "reasons": [],
             }
@@ -51,6 +52,17 @@ class JsonReportRepository(ReportRepository):
                     }
                     for ind in fr.score.indicators
                 ]
+            if fr.metadata:
+                result["technical_info"] = {
+                    "producer": fr.metadata.producer,
+                    "creator": fr.metadata.creator,
+                    "pdf_version": fr.metadata.pdf_version,
+                    "page_height": fr.metadata.page_height,
+                    "page_width": fr.metadata.page_width,
+                    "is_encrypted": fr.metadata.is_encrypted,
+                    "keywords": fr.metadata.keywords,
+                }
+            result["revision_count"] = fr.revision_count
             return result
 
         return {
@@ -77,10 +89,25 @@ class JsonReportRepository(ReportRepository):
                 total_score=d.get("score", 0),
                 indicators=indicators,
             )
+            metadata = None
+            ti = d.get("technical_info")
+            if ti:
+                metadata = PdfMetadata(
+                    producer=ti.get("producer", ""),
+                    creator=ti.get("creator", ""),
+                    pdf_version=ti.get("pdf_version", ""),
+                    page_height=ti.get("page_height", 0),
+                    page_width=ti.get("page_width", 0),
+                    is_encrypted=ti.get("is_encrypted", False),
+                    keywords=ti.get("keywords", ""),
+                )
             return FileResult(
                 filename=d["filename"],
                 verdict=ReceiptVerdict(d["verdict"]),
+                detected_bank=d.get("detected_bank", "unknown"),
                 score=score,
+                metadata=metadata,
+                revision_count=d.get("revision_count", 0),
             )
 
         return AnalysisReport(

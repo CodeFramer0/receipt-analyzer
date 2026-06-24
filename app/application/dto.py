@@ -33,6 +33,7 @@ class PdfTechnicalInfoDto(BaseModel):
 class FileResultDto(BaseModel):
     filename: str
     verdict: ReceiptVerdict
+    detected_bank: str = "unknown"
     score: float
     reasons: list[ForgeryIndicatorDto]
     technical_info: PdfTechnicalInfoDto | None = None

@@ -39,11 +39,26 @@ def _file_result_to_dto(fr: FileResult) -> FileResultDto:
             for ind in fr.score.indicators
         ]
 
+    technical_info = None
+    if fr.metadata:
+        technical_info = PdfTechnicalInfoDto(
+            producer=fr.metadata.producer,
+            creator=fr.metadata.creator,
+            pdf_version=fr.metadata.pdf_version,
+            page_height=fr.metadata.page_height,
+            page_width=fr.metadata.page_width,
+            is_encrypted=fr.metadata.is_encrypted,
+            revision_count=fr.revision_count,
+            keywords=fr.metadata.keywords,
+        )
+
     return FileResultDto(
         filename=fr.filename,
         verdict=fr.verdict,
+        detected_bank=fr.detected_bank,
         score=fr.score.total_score if fr.score else 0,
         reasons=indicators,
+        technical_info=technical_info,
     )
 
 
